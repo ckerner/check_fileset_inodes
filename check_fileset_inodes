@@ -29,6 +29,7 @@ sub check_options();
 sub print_help_screen();
 sub check_manager();
 sub check_lock();
+sub create_config_file($);
 
 #----------------------------------------------------------------------------------------#
 # Variable Declarations                                                                  #
@@ -73,6 +74,16 @@ sub check_lock() {
 	}
 	exit;
     }
+}
+
+sub create_config_file($) {
+    my $config_file = $_[0];
+
+    open( OUTFIL, ">$config_file" ) || die("Unable to open file: $config_file. $!\n");
+    printf OUTFIL "%10s   %8s   %8s\n", '# Fileset', 'Threshhold', 'Increment';
+    printf OUTFIL "%10s   %8d   %8d\n", $main::default_fileset, $main::default_threshhold, $main::default_increment;
+    close( OUTFIL );
+    return;
 }
 
 #----------------------------------------------------------------------------------------#
@@ -138,9 +149,13 @@ EOHELP
     while( <MNTFIL> ) {
         my @mount = split( /\s+/, $_, 6 );
 	my $dev = $mount[0];
+	my $mount_point = $mount[2];
 	my $gpfsdev = '';
 	if( $dev =~ m/^\// ) { $gpfsdev = ( split(/\//, $dev) )[2]; }
 	else                 { $gpfsdev = $dev; }
+
+	$main::config_file = $mount_point . '/.inocfg';
+	if( ! -f $main::config_file ) { create_config_file( $main::config_file ); }
 
 	# - does a config file exist. If not, create one
 	# - read config file into hash
