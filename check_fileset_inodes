@@ -22,6 +22,7 @@ use warnings;
 use Fcntl qw(:flock);
 use Getopt::Long;
 use Data::Dumper;
+use POSIX qw( strftime );
 
 #----------------------------------------------------------------------------------------#
 # Function Prototypes                                                                    #
@@ -178,6 +179,26 @@ sub load_quota_info($) {
 
 sub load_fileset_info($) {
     my $gpfsdev = $_[0];
+    my %hash;
+    open( FILESET, "/usr/lpp/mmfs/bin/mmlsfileset $gpfsdev -L |");
+    FREC: while( <FILESET> ) {
+        chomp;
+
+	# Skip the command output headers
+	next FREC if m/^Collecting fileset/;
+	next FREC if m/^Fileset/;
+	next FREC if m/^Name/;
+
+	my @ara = split( /\s+/, $_ );
+	my $fset = $ara[0];
+
+	$hash{$fset}{parent_id} = $ara[3];
+	$hash{$fset}{inode_space} = $ara[9];
+	$hash{$fset}{max} = $ara[10];
+	$hash{$fset}{alloc} = $ara[11];
+    }
+    close( FILESET ); 
+    return %hash;
 }
 
 # Main Code Block
@@ -205,6 +226,7 @@ sub load_fileset_info($) {
 	if( $main::verbose ) { print "Processing: $gpfsdev mounted at $mount_point\n"; }
 
 	$main::config_file = $mount_point . '/.inocfg';
+	$main::log_file = $mount_point . '/.inolog';
 	if( ! -f $main::config_file ) { create_config_file( $main::config_file ); }
 
 	# Load the threshholds and increments.
@@ -212,20 +234,64 @@ sub load_fileset_info($) {
 
 	if( quotas_enabled( $gpfsdev ) ) {
 		%main::quota = load_quota_info( $gpfsdev );
-                print Dumper \%main::quota;
+		#print Dumper \%main::quota;
 
-		%main::fileset = load_fileset_info( $gpfsdev );
-                print Dumper \%main::fileset;
+		%main::filesets = load_fileset_info( $gpfsdev );
+		#print Dumper \%main::fileset;
+
+		my $fset;
+		NXTFST: foreach $fset ( sort( keys %main::filesets ) ) {
+		    if( $main::verbose ) {
+		        if( $main::header == 0 ) {
+		            printf "%-20s \t %-16s \t %16s\n", 'Device', 'Threshhold', 'Difference';
+			    $main::header++;
+		        }
+		    }
+		    if( $main::filesets{$fset}{parent_id} eq '--' && $fset ne 'root' ) {
+		        if( $main::verbose ) { print "$gpfsdev : $fset is not an independent inode fileset.\n"; }
+		    }
+		    elsif( $fset ne 'root' && $main::filesets{$fset}{inode_space} eq '0' ) {
+		        if( $main::verbose ) { print "$gpfsdev : $fset is not an independent inode fileset.\n"; }
+		    }
+		    else {
+		        # Calculate the offset
+			my $threshhold;
+			my $increment;
+			if( defined( $main::settings{$fset}{THRESHHOLD} ) ) {
+			    $threshhold = $main::settings{$fset}{THRESHHOLD};
+			    $increment = $main::settings{$fset}{INCREMENT};
+			}
+			else {
+			    $threshhold = $main::settings{root}{THRESHHOLD};
+			    $increment = $main::settings{root}{INCREMENT};
+			}
+
+		        my $diff = $main::filesets{$fset}{max} - ( $main::quota{$fset}{files} + $main::quota{$fset}{in_doubt} );
+			if( $diff < $threshhold ) {
+			    my $new_limit = $main::filesets{$fset}{max} + $increment;
+			    my $date = strftime("%Y-%m-%d %H:%M:%S", localtime());
+			    if( $main::verbose ) {
+			        printf "$date  $gpfsdev:$fset  $main::filesets{$fset}{max} -> $new_limit\n";
+			    }
+
+			    # Log the increases
+			    open(LOGOUT, ">>$main::log_file");
+			    printf LOGOUT "$date  $gpfsdev:$fset  $main::filesets{$fset}{max} -> $new_limit\n";
+			    close(LOGOUT);
+
+			    #system("/usr/lpp/mmfs/bin/mmchfileset $gpfsdev $fset --inode-limit $new_limit");
+			}
+			else {
+			    if( $main::verbose ) {
+			        print "$gpfsdev:$fset   Threshhold: $threshhold   Difference: $diff\n";
+			    }
+			}
+		    }
+		}
 	}
 	else {
 	    print "Quotas are not enabled on: $gpfsdev - $mount_point\n";
         }
-
-
-
-	# - load quotas into a hash
-	# - load fileset info into a hash
-	# - check used versus allocated, if needed, increase
     }
     close( MNTFIL );
     exit;
