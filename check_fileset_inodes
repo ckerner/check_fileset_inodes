@@ -1,0 +1,155 @@
+#!/usr/bin/env perl
+#========================================================================================#
+# check_fileset_inodes - This script will check all gpfs file systems and file sets to   #
+#                        see if they are low on inodes.  If so, it will automatically    #
+#                        increment them based on the config file.                        #
+#----------------------------------------------------------------------------------------#
+# Author: Chad Kerner, ckerner@illinois.edu                                              #
+#         Senior Systems Engineer                                                        #
+#         Storage Enabling Technologies                                                  #
+#         National Center for Supercomputing Applications                                #
+#         University of Illinois, Urbana-Champaign                                       #
+#----------------------------------------------------------------------------------------#
+# NOTE: This utility requires that quota's be enabled on the file system in order for    #
+#       tracking the inode usage.  They don't have to be set and/or enforced, just on.   #
+#========================================================================================#
+
+#----------------------------------------------------------------------------------------#
+# Package Declarations                                                                   #
+#----------------------------------------------------------------------------------------#
+use strict;
+use warnings;
+use Fcntl qw(:flock);
+use Getopt::Long;
+
+#----------------------------------------------------------------------------------------#
+# Function Prototypes                                                                    #
+#----------------------------------------------------------------------------------------#
+sub check_options();
+sub print_help_screen();
+sub check_manager();
+sub check_lock();
+
+#----------------------------------------------------------------------------------------#
+# Variable Declarations                                                                  #
+#----------------------------------------------------------------------------------------#
+$main::debug = 0;
+$main::default_config_file = '/usr/local/bin/etc/check_fileset_inodes.conf';
+$main::default_fileset = 'root';
+$main::default_threshhold = 150000;
+$main::default_increment = 250000;
+
+#----------------------------------------------------------------------------------------#
+# check_manager() - Check to see if this node is the GPFS manager node.  Only execute on #
+#                   the GPFS manager node to avoid multiple running instances.           #
+#----------------------------------------------------------------------------------------#
+sub check_manager() {
+    my $myhost = `hostname -s`;
+    chomp $myhost;
+
+    my $mmlsmgr = `/usr/lpp/mmfs/bin/mmlsmgr -c`;
+    $mmlsmgr =~ s/\(//;
+    $mmlsmgr =~ s/\)//;
+
+    if( index( $mmlsmgr, $myhost ) > 0 ) {
+	if( $main::verbose or ( $main::debug > 0 ) ) {
+	    print "$myhost is the cluster manager.\n";
+	}
+    }
+    else {
+	if( $main::verbose or ( $main::debug > 0 ) ) {
+	    print "$myhost is not the cluster manager.\n";
+	}
+	exit 0;
+    }
+}
+
+sub check_lock() {
+    open our $lock_file, '<', $0 or die $!;
+    my $rc = flock $lock_file, LOCK_EX|LOCK_NB;
+    if( $rc == 0 ) {
+	if( $main::verbose or ( $main::debug > 0 ) ) {
+	    print chomp($0) . " is already running.\n";
+	}
+	exit;
+    }
+}
+
+#----------------------------------------------------------------------------------------#
+# check_options() - Parse the command line options.                                      #
+#----------------------------------------------------------------------------------------#
+sub check_options() {
+    my $result = GetOptions ( 'f=s' => \$main::config_file,
+	                      'd'   => sub { $main::debug++; },
+			      'v'   => \$main::verbose,
+			      'h'   => sub { print_help_screen(); },
+			    );
+
+    if( $main::config_file == '' ) { $main::config_file = $main::default_config_file; }
+
+    if( $main::verbose || ( $main::debug != 0 ) ) {
+        print STDERR "Using Config File: $main::config_file\n";
+    }
+}
+
+
+#----------------------------------------------------------------------------------------#
+# print_help_screen() - Pring the help screen.                                           #
+#----------------------------------------------------------------------------------------#
+sub print_help_screen() {
+    my $basename = `basename $0`;
+    chomp $basename;
+    my $output = <<EOHELP;
+
+    Usage: $basename [ -f <config file> ] [-d] [-v] [-h]
+
+    -f <config file>   Path to the configuration file that contains all of the
+                       default threshholds.  The path to the default configuration
+		       file is: $main::default_config_file
+
+    -v                 Execute in verbose mode. The default is to be very quiet.
+
+    -d                 Turn on debugging. Each time this is used increases 
+                       message level.
+
+    -h                 This help screen.
+
+EOHELP
+
+    print $output;
+    exit;
+}
+
+
+# Main Code Block
+{
+    # Check the command line options.
+    check_options();
+
+    # Check to see if we are running on the GPFS manager node.
+    check_manager();
+
+    # Check to see if the script is locked because it is already running.
+    check_lock();
+
+    # Lets get busy...
+    $main::header = 0;
+    open( MNTFIL, "mount -t gpfs |") || die("Unable to execute: mount -t gpfs: $!\n");
+    while( <MNTFIL> ) {
+        my @mount = split( /\s+/, $_, 6 );
+	my $dev = $mount[0];
+	my $gpfsdev = '';
+	if( $dev =~ m/^\// ) { $gpfsdev = ( split(/\//, $dev) )[2]; }
+	else                 { $gpfsdev = $dev; }
+
+	# - does a config file exist. If not, create one
+	# - read config file into hash
+	# - see if quotas are on for the device. if no, all done here.
+	# - load quotas into a hash
+	# - load fileset info into a hash
+	# - check used versus allocated, if needed, increase
+    }
+    close( MNTFIL );
+    exit;
+} # End of the main code block.
+
