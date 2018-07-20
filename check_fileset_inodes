@@ -21,6 +21,7 @@ use strict;
 use warnings;
 use Fcntl qw(:flock);
 use Getopt::Long;
+use Data::Dumper;
 
 #----------------------------------------------------------------------------------------#
 # Function Prototypes                                                                    #
@@ -34,8 +35,6 @@ sub create_config_file($);
 #----------------------------------------------------------------------------------------#
 # Variable Declarations                                                                  #
 #----------------------------------------------------------------------------------------#
-$main::debug = 0;
-$main::default_config_file = '/usr/local/bin/etc/check_fileset_inodes.conf';
 $main::default_fileset = 'root';
 $main::default_threshhold = 150000;
 $main::default_increment = 250000;
@@ -53,12 +52,12 @@ sub check_manager() {
     $mmlsmgr =~ s/\)//;
 
     if( index( $mmlsmgr, $myhost ) > 0 ) {
-	if( $main::verbose or ( $main::debug > 0 ) ) {
+	if( $main::verbose ) {
 	    print "$myhost is the cluster manager.\n";
 	}
     }
     else {
-	if( $main::verbose or ( $main::debug > 0 ) ) {
+	if( $main::verbose ) {
 	    print "$myhost is not the cluster manager.\n";
 	}
 	exit 0;
@@ -69,7 +68,7 @@ sub check_lock() {
     open our $lock_file, '<', $0 or die $!;
     my $rc = flock $lock_file, LOCK_EX|LOCK_NB;
     if( $rc == 0 ) {
-	if( $main::verbose or ( $main::debug > 0 ) ) {
+	if( $main::verbose ) {
 	    print chomp($0) . " is already running.\n";
 	}
 	exit;
@@ -79,9 +78,11 @@ sub check_lock() {
 sub create_config_file($) {
     my $config_file = $_[0];
 
+    if( $main::verbose ) { print "Creating config file: $config_file\n"; }
+
     open( OUTFIL, ">$config_file" ) || die("Unable to open file: $config_file. $!\n");
-    printf OUTFIL "%10s   %8s   %8s\n", '# Fileset', 'Threshhold', 'Increment';
-    printf OUTFIL "%10s   %8d   %8d\n", $main::default_fileset, $main::default_threshhold, $main::default_increment;
+    printf OUTFIL "%-10s   %10s   %10s\n", '# Fileset', 'Threshhold', 'Increment';
+    printf OUTFIL "%-10s   %10d   %10d\n", $main::default_fileset, $main::default_threshhold, $main::default_increment;
     close( OUTFIL );
     return;
 }
@@ -90,17 +91,10 @@ sub create_config_file($) {
 # check_options() - Parse the command line options.                                      #
 #----------------------------------------------------------------------------------------#
 sub check_options() {
-    my $result = GetOptions ( 'f=s' => \$main::config_file,
-	                      'd'   => sub { $main::debug++; },
-			      'v'   => \$main::verbose,
+    my $result = GetOptions ( 'v'   => \$main::verbose,
 			      'h'   => sub { print_help_screen(); },
 			    );
 
-    if( $main::config_file == '' ) { $main::config_file = $main::default_config_file; }
-
-    if( $main::verbose || ( $main::debug != 0 ) ) {
-        print STDERR "Using Config File: $main::config_file\n";
-    }
 }
 
 
@@ -112,16 +106,9 @@ sub print_help_screen() {
     chomp $basename;
     my $output = <<EOHELP;
 
-    Usage: $basename [ -f <config file> ] [-d] [-v] [-h]
-
-    -f <config file>   Path to the configuration file that contains all of the
-                       default threshholds.  The path to the default configuration
-		       file is: $main::default_config_file
+    Usage: $basename [-d] [-v] [-h]
 
     -v                 Execute in verbose mode. The default is to be very quiet.
-
-    -d                 Turn on debugging. Each time this is used increases 
-                       message level.
 
     -h                 This help screen.
 
@@ -131,6 +118,45 @@ EOHELP
     exit;
 }
 
+sub load_config_file($) {
+    my $config_file = $_[0];
+    my %hash;
+    open( INCFG, "$config_file" ) || die("Unable to open: $config_file: $!\n");
+    NEXTCFG: while( <INCFG> ) {
+        chomp;
+	s/^\s+//g;               # Strip left white space
+	s/\s+$//g;               # Strip right white space
+	next NEXTCFG if m/^$/;   # Skip blank lines
+        next NEXTCFG if m/^#/;   # Skip comment lines
+        my @ara = split( /\s+/, $_, 3 );
+	$hash{$ara[0]}{THRESHHOLD} = $ara[1];
+	$hash{$ara[0]}{INCREMENT} = $ara[2];
+    }
+    close( INCFG ); 
+    return %hash;
+}
+
+sub quotas_enabled($) {
+    my $gpfsdev = $_[0];
+    my $found = 0;
+    open(INCMD, "/usr/lpp/mmfs/bin/mmlsfs $gpfsdev |");
+    RECORD: while( <INCMD> ) {
+       chomp;
+       next RECORD if ! m/accounting enabled/;
+       next RECORD if ! m/fileset/;
+       $found++;
+    }
+    close(INCMD);
+    return $found;
+}
+
+sub load_quota_info($) {
+    my $gpfsdev = $_[0];
+}
+
+sub load_fileset_info($) {
+    my $gpfsdev = $_[0];
+}
 
 # Main Code Block
 {
@@ -154,12 +180,25 @@ EOHELP
 	if( $dev =~ m/^\// ) { $gpfsdev = ( split(/\//, $dev) )[2]; }
 	else                 { $gpfsdev = $dev; }
 
+	if( $main::verbose ) { print "Processing: $gpfsdev mounted at $mount_point\n"; }
+
 	$main::config_file = $mount_point . '/.inocfg';
 	if( ! -f $main::config_file ) { create_config_file( $main::config_file ); }
 
-	# - does a config file exist. If not, create one
-	# - read config file into hash
-	# - see if quotas are on for the device. if no, all done here.
+	%main::settings = load_config_file( $main::config_file );
+
+	if( quotas_enabled( $gpfsdev ) ) {
+		%main::quota = load_quota_info( $gpfsdev );
+
+		%main::fileset = load_fileset_info( $gpfsdev );
+	}
+	else {
+	    print "Quotas are not enabled on: $gpfsdev - $mount_point\n";
+        }
+
+
+	print Dumper \%main::settings;
+
 	# - load quotas into a hash
 	# - load fileset info into a hash
 	# - check used versus allocated, if needed, increase
