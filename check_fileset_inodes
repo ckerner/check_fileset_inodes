@@ -152,6 +152,28 @@ sub quotas_enabled($) {
 
 sub load_quota_info($) {
     my $gpfsdev = $_[0];
+    my %hash;
+    open( QUOTA, "/usr/lpp/mmfs/bin/mmrepquota --block-size 1t -j $gpfsdev |");
+    QREC: while( <QUOTA> ) {
+        chomp;
+	s/^\s+//g;
+	s/\s+$//g;
+	next QREC if m/^$/;
+	next QREC if m/Block Limits/;
+	next QREC if m/^Name/;
+	my @ara = split( /\s+/, $_ );
+	my $fset = $ara[0];
+	if( $ara[9] eq '|' ) {
+	    $hash{$fset}{files} = $ara[10];
+	    $hash{$fset}{in_doubt} = $ara[13];
+	}
+	else {
+	    $hash{$fset}{files} = $ara[8];
+	    $hash{$fset}{in_doubt} = $ara[11];
+	}
+    }
+    close( QUOTA );
+    return %hash;
 }
 
 sub load_fileset_info($) {
@@ -185,19 +207,21 @@ sub load_fileset_info($) {
 	$main::config_file = $mount_point . '/.inocfg';
 	if( ! -f $main::config_file ) { create_config_file( $main::config_file ); }
 
+	# Load the threshholds and increments.
 	%main::settings = load_config_file( $main::config_file );
 
 	if( quotas_enabled( $gpfsdev ) ) {
 		%main::quota = load_quota_info( $gpfsdev );
+                print Dumper \%main::quota;
 
 		%main::fileset = load_fileset_info( $gpfsdev );
+                print Dumper \%main::fileset;
 	}
 	else {
 	    print "Quotas are not enabled on: $gpfsdev - $mount_point\n";
         }
 
 
-	print Dumper \%main::settings;
 
 	# - load quotas into a hash
 	# - load fileset info into a hash
