@@ -243,7 +243,7 @@ sub load_fileset_info($) {
 		NXTFST: foreach $fset ( sort( keys %main::filesets ) ) {
 		    if( $main::verbose ) {
 		        if( $main::header == 0 ) {
-		            printf "%-20s \t %-16s \t %16s\n", 'Device', 'Threshhold', 'Difference';
+		            printf "%-25s \t %16s \t %16s\n", 'Device', 'Threshhold', 'Difference';
 			    $main::header++;
 		        }
 		    }
@@ -271,7 +271,7 @@ sub load_fileset_info($) {
 			    my $new_limit = $main::filesets{$fset}{max} + $increment;
 			    my $date = strftime("%Y-%m-%d %H:%M:%S", localtime());
 			    if( $main::verbose ) {
-			        printf "$date  $gpfsdev:$fset  $main::filesets{$fset}{max} -> $new_limit\n";
+				printf "%-25s %s -> %s\n", "$gpfsdev:$fset", $main::filesets{$fset}{max}, $new_limit;
 			    }
 
 			    # Log the increases
@@ -279,11 +279,11 @@ sub load_fileset_info($) {
 			    printf LOGOUT "$date  $gpfsdev:$fset  $main::filesets{$fset}{max} -> $new_limit\n";
 			    close(LOGOUT);
 
-			    #system("/usr/lpp/mmfs/bin/mmchfileset $gpfsdev $fset --inode-limit $new_limit");
+			    system("/usr/lpp/mmfs/bin/mmchfileset $gpfsdev $fset --inode-limit $new_limit");
 			}
 			else {
 			    if( $main::verbose ) {
-			        print "$gpfsdev:$fset   Threshhold: $threshhold   Difference: $diff\n";
+			        printf "%-25s \t %16s \t %16s\n", "$gpfsdev:$fset", $threshhold, $diff;
 			    }
 			}
 		    }
