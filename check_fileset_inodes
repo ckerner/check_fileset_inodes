@@ -93,6 +93,8 @@ sub create_config_file($) {
 #----------------------------------------------------------------------------------------#
 sub check_options() {
     my $result = GetOptions ( 'v'   => \$main::verbose,
+                              'f'   => \$main::force_run, 
+                              'd'   => \$main::debug, 
 			      'h'   => sub { print_help_screen(); },
 			    );
 
@@ -107,9 +109,11 @@ sub print_help_screen() {
     chomp $basename;
     my $output = <<EOHELP;
 
-    Usage: $basename [-d] [-v] [-h]
+    Usage: $basename [-v] [-f] [-h]
 
     -v                 Execute in verbose mode. The default is to be very quiet.
+
+    -f                 Force a run even if the node is not the cluster manager node.
 
     -h                 This help screen.
 
@@ -154,24 +158,23 @@ sub quotas_enabled($) {
 sub load_quota_info($) {
     my $gpfsdev = $_[0];
     my %hash;
-    open( QUOTA, "/usr/lpp/mmfs/bin/mmrepquota --block-size 1t -j $gpfsdev |");
+    open( QUOTA, "/usr/lpp/mmfs/bin/mmrepquota -j -Y $gpfsdev |");
     QREC: while( <QUOTA> ) {
         chomp;
 	s/^\s+//g;
 	s/\s+$//g;
 	next QREC if m/^$/;
-	next QREC if m/Block Limits/;
-	next QREC if m/^Name/;
-	my @ara = split( /\s+/, $_ );
-	my $fset = $ara[0];
-	if( $ara[9] eq '|' ) {
-	    $hash{$fset}{files} = $ara[10];
-	    $hash{$fset}{in_doubt} = $ara[13];
-	}
-	else {
-	    $hash{$fset}{files} = $ara[8];
-	    $hash{$fset}{in_doubt} = $ara[11];
-	}
+	next QREC if m/HEADER/;
+	my @ara = split( /:/, $_ );
+
+        if( $main::debug ) {
+            print "Raw: $_\n";
+            print "* $ara[6] * $ara[9] * $ara[15] * $ara[18] *\n";
+        }
+	my $fset = $ara[9];
+
+	$hash{$fset}{files} = $ara[15];
+	$hash{$fset}{in_doubt} = $ara[18];
     }
     close( QUOTA );
     return %hash;
@@ -180,22 +183,20 @@ sub load_quota_info($) {
 sub load_fileset_info($) {
     my $gpfsdev = $_[0];
     my %hash;
-    open( FILESET, "/usr/lpp/mmfs/bin/mmlsfileset $gpfsdev -L |");
+    open( FILESET, "/usr/lpp/mmfs/bin/mmlsfileset $gpfsdev -L -Y|");
     FREC: while( <FILESET> ) {
         chomp;
 
 	# Skip the command output headers
-	next FREC if m/^Collecting fileset/;
-	next FREC if m/^Fileset/;
-	next FREC if m/^Name/;
+	next FREC if m/HEADER/;
 
-	my @ara = split( /\s+/, $_ );
-	my $fset = $ara[0];
+	my @ara = split( /:/, $_ );
+	my $fset = $ara[7];
 
-	$hash{$fset}{parent_id} = $ara[3];
+	$hash{$fset}{parent_id} = $ara[12];
 	$hash{$fset}{inode_space} = $ara[9];
-	$hash{$fset}{max} = $ara[10];
-	$hash{$fset}{alloc} = $ara[11];
+	$hash{$fset}{max} = $ara[32];
+	$hash{$fset}{alloc} = $ara[33];
     }
     close( FILESET ); 
     return %hash;
@@ -206,8 +207,9 @@ sub load_fileset_info($) {
     # Check the command line options.
     check_options();
 
-    # Check to see if we are running on the GPFS manager node.
-    check_manager();
+    # Check to see if we are running on the GPFS manager node, unless we are
+    # forcing a run.
+    if( ! defined( $main::force_run ) ) { check_manager(); }
 
     # Check to see if the script is locked because it is already running.
     check_lock();
@@ -215,7 +217,8 @@ sub load_fileset_info($) {
     # Lets get busy...
     $main::header = 0;
     open( MNTFIL, "mount -t gpfs |") || die("Unable to execute: mount -t gpfs: $!\n");
-    while( <MNTFIL> ) {
+    NXTMNT: while( <MNTFIL> ) {
+        next if ! m/des005/;
         my @mount = split( /\s+/, $_, 6 );
 	my $dev = $mount[0];
 	my $mount_point = $mount[2];
@@ -234,10 +237,10 @@ sub load_fileset_info($) {
 
 	if( quotas_enabled( $gpfsdev ) ) {
 		%main::quota = load_quota_info( $gpfsdev );
-		#print Dumper \%main::quota;
+		if( $main::debug ) { print Dumper \%main::quota; }
 
 		%main::filesets = load_fileset_info( $gpfsdev );
-		#print Dumper \%main::fileset;
+		if( $main::debug ) { print Dumper \%main::filesets; }
 
 		my $fset;
 		NXTFST: foreach $fset ( sort( keys %main::filesets ) ) {
@@ -266,9 +269,17 @@ sub load_fileset_info($) {
 			    $increment = $main::settings{root}{INCREMENT};
 			}
 
-		        my $diff = $main::filesets{$fset}{max} - ( $main::quota{$fset}{files} + $main::quota{$fset}{in_doubt} );
+                        if( $main::debug ) {
+                            print "   File Set: $fset\n";
+                            print "  Increment: $increment\n";
+                            print " Max Inodes: $main::filesets{$fset}{max}\n";
+                            print "Quota Files: $main::quota{$fset}{files}\n";
+                            print "Quota Doubt: $main::quota{$fset}{in_doubt}\n";
+                        }
+
+		        my $diff = int($main::filesets{$fset}{max}) - ( int($main::quota{$fset}{files}) + int($main::quota{$fset}{in_doubt}) );
 			if( $diff < $threshhold ) {
-			    my $new_limit = $main::filesets{$fset}{max} + $increment;
+			    my $new_limit = int($main::filesets{$fset}{max}) + int($increment);
 			    my $date = strftime("%Y-%m-%d %H:%M:%S", localtime());
 			    if( $main::verbose ) {
 				printf "%-25s %s -> %s\n", "$gpfsdev:$fset", $main::filesets{$fset}{max}, $new_limit;
