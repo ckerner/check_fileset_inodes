@@ -1,0 +1,8 @@
+gpfs_cluster = mycluster
+curl_path = /usr/bin/curl
+influx_user = my_db_user
+influx_pass = my_db_password
+influx_db = my_db_name
+influx_metric = my_metric_name
+influx_output = /my_output_dir
+influx_service = http://my_influx_url:my_influx_port

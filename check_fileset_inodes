@@ -23,6 +23,7 @@ use Fcntl qw(:flock);
 use Getopt::Long;
 use Data::Dumper;
 use POSIX qw( strftime );
+use Time::HiRes qw( time );
 
 #----------------------------------------------------------------------------------------#
 # Function Prototypes                                                                    #
@@ -39,6 +40,9 @@ sub create_config_file($);
 $main::default_fileset = 'root';
 $main::default_threshhold = 150000;
 $main::default_increment = 250000;
+$main::influx_config = '/etc/cfi/cfi.cfg';
+
+
 
 #----------------------------------------------------------------------------------------#
 # check_manager() - Check to see if this node is the GPFS manager node.  Only execute on #
@@ -95,6 +99,7 @@ sub check_options() {
     my $result = GetOptions ( 'v'   => \$main::verbose,
                               'f'   => \$main::force_run, 
                               'd'   => \$main::debug, 
+                              's'   => \$main::no_influx, 
 			      'h'   => sub { print_help_screen(); },
 			    );
 
@@ -173,7 +178,17 @@ sub load_quota_info($) {
         }
 	my $fset = $ara[9];
 
+        # Block usage and quota information
+        $hash{$fset}{parent} = $gpfsdev;
+        $hash{$fset}{blocks} = $ara[10];
+        $hash{$fset}{squotab} = $ara[11];
+        $hash{$fset}{hquotab} = $ara[12];
+        $hash{$fset}{in_doubtb} = $ara[13];
+
+        # File usage and quota information
 	$hash{$fset}{files} = $ara[15];
+        $hash{$fset}{squotaf} = $ara[16];
+        $hash{$fset}{hquotaf} = $ara[17];
 	$hash{$fset}{in_doubt} = $ara[18];
     }
     close( QUOTA );
@@ -213,6 +228,34 @@ sub load_fileset_info($) {
 
     # Check to see if the script is locked because it is already running.
     check_lock();
+
+    # If storing data into influx, load the configuration.
+    if( ! $main::no_influx ) {
+        open(INCFG, $main::influx_config) || die("Unable to open: $main::influx_config : $!\n");
+        INREC: while( <INCFG> ) {
+            chomp;
+	    s/^\s+//g;
+	    s/\s+$//g;
+	    next INREC if m/^$/;
+	    next INREC if m/^#/;
+            my ($key, $value) = split(/=/, $_, 2);
+            $key =~ s/\s+$//g;
+            $value =~ s/^\s+//g;
+            $main::influx{$key} = $value;
+        }
+        close(INCFG);
+
+        $main::influx{influx_url}  = $main::influx{curl_path} . ' -XPOST ';
+        $main::influx{influx_url} .= '-u ' . $main::influx{influx_user} . ':' . $main::influx{influx_pass} . ' ';
+        $main::influx{influx_url} .= $main::influx{influx_service} . '/write?db=' . $main::influx{influx_db} . ' ';
+        $main::influx{influx_url} .= '-d "' . $main::influx{influx_metric} . ',cluster=' . $main::influx{gpfs_cluster};
+
+        my $dt = strftime( "%Y%m%d%H%M%S", localtime() );
+        $main::sqllog = $main::influx{influx_output} . '/' . $main::influx{gpfs_cluster};
+        $main::sqllog .= '.' . $main::influx{influx_metric} . '.' . $dt;
+
+        if( $main::debug ) { print Dumper \%main::influx; print "$main::sqllog\n"; }
+    }
 
     # Lets get busy...
     $main::header = 0;
@@ -277,6 +320,28 @@ sub load_fileset_info($) {
                         }
 
 		        my $diff = int($main::filesets{$fset}{max}) - ( int($main::quota{$fset}{files}) + int($main::quota{$fset}{in_doubt}) );
+
+                        if( ! $main::no_influx ) {
+                            my $dbout = '';
+                            $dbout .= $main::influx{influx_url} . ',';
+                            $dbout .= 'gpfsdev=' . $main::quota{$fset}{parent} . ',';
+                            $dbout .= 'fileset=' . $fset . ' ';
+                            $dbout .= 'blocks=' . ( int($main::quota{$fset}{blocks}) + int($main::quota{$fset}{in_doubtb}) ) . ',';
+                            $dbout .= 'squotab=' .  $main::quota{$fset}{squotab} . ',';
+                            $dbout .= 'hquotab=' .  $main::quota{$fset}{hquotab} . ',';
+                            $dbout .= 'files=' . ( int($main::quota{$fset}{files}) + int($main::quota{$fset}{in_doubt}) ) . ',';
+                            $dbout .= 'squotaf=' .  $main::quota{$fset}{squotaf} . ',';
+                            $dbout .= 'hquotaf=' .  $main::quota{$fset}{hquotaf} . ' ';
+                            $dbout .= int(time() * 1e9) . '"';
+
+                            open(SQL, ">>$main::sqllog");
+                            printf SQL "$dbout\n";
+                            if( $main::debug ) {
+                                printf "$dbout\n";
+                            }
+                            close(SQL);
+                        }
+
 			if( $diff < $threshhold ) {
 			    my $new_limit = int($main::filesets{$fset}{max}) + int($increment);
 			    my $date = strftime("%Y-%m-%d %H:%M:%S", localtime());
@@ -304,6 +369,7 @@ sub load_fileset_info($) {
         }
     }
     close( MNTFIL );
+
     exit;
 } # End of the main code block.
 
