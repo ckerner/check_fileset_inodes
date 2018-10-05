@@ -65,7 +65,7 @@ sub check_manager() {
 	if( $main::verbose ) {
 	    print "$myhost is not the cluster manager.\n";
 	}
-	exit 0;
+	exit 1;
     }
 }
 
@@ -76,7 +76,7 @@ sub check_lock() {
 	if( $main::verbose ) {
 	    print chomp($0) . " is already running.\n";
 	}
-	exit;
+	exit 2;
     }
 }
 
