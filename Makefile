@@ -15,12 +15,12 @@ clean:
 etc:    .FORCE
 	mkdir -p /etc/cfi
 	cp -fp $(CURDIR)/load_inode_data.sh /etc/cfi/
-	cp -fp $(CURDIR)/cfi.cfg /etc/cfi/
+	cp -fp $(CURDIR)/cfi.skel /etc/cfi/
 
 cron:   .FORCE
-	echo ' ' >>/var/spool/cron/root
-	echo '# Check fileset inode allocations.' >>/var/spool/cron/root
-	echo '*/15 * * * * /usr/local/bin/check_fileset_inodes && /etc/cfi/load_inode_data.sh' >>/var/spool/cron/root
+	printf "\n" >>/var/spool/cron/root
+	printf "# Check fileset inode allocations.\n" >>/var/spool/cron/root
+	printf "*/15 * * * * /usr/local/bin/check_fileset_inodes && /etc/cfi/load_inode_data.sh &>/tmp/cfi.log\n" >>/var/spool/cron/root
 
 .FORCE:
 
