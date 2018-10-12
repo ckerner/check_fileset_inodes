@@ -118,7 +118,11 @@ sub print_help_screen() {
 
     -v                 Execute in verbose mode. The default is to be very quiet.
 
+    -d                 Execute in debug mode. This produces a log of output!   
+
     -f                 Force a run even if the node is not the cluster manager node.
+
+    -s                 Do not write out the influx dataase file.                       
 
     -h                 This help screen.
 
@@ -278,9 +282,11 @@ sub load_fileset_info($) {
 	%main::settings = load_config_file( $main::config_file );
 
 	if( quotas_enabled( $gpfsdev ) ) {
+                # Store all of the quota information for the filesets.
 		%main::quota = load_quota_info( $gpfsdev );
 		if( $main::debug ) { print Dumper \%main::quota; }
 
+                # Load all of the fileset information that we want to keep.
 		%main::filesets = load_fileset_info( $gpfsdev );
 		if( $main::debug ) { print Dumper \%main::filesets; }
 
@@ -334,26 +340,24 @@ sub load_fileset_info($) {
                             $dbout .= 'hquotaf=' .  $main::quota{$fset}{hquotaf} . ' ';
                             $dbout .= int(time() * 1e9) . '"';
 
-                            open(SQL, ">>$main::sqllog");
-                            printf SQL "$dbout\n";
                             if( $main::debug ) {
                                 printf "$dbout\n";
                             }
+                            open(SQL, ">>$main::sqllog");
+                            printf SQL "$dbout\n";
                             close(SQL);
                         }
 
 			if( $diff < $threshhold ) {
 			    my $new_limit = int($main::filesets{$fset}{max}) + int($increment);
 			    my $date = strftime("%Y-%m-%d %H:%M:%S", localtime());
-			    if( $main::verbose ) {
-				printf "%-25s %s -> %s\n", "$gpfsdev:$fset", $main::filesets{$fset}{max}, $new_limit;
-			    }
 
 			    # Log the increases
 			    open(LOGOUT, ">>$main::log_file");
 			    printf LOGOUT "$date  $gpfsdev:$fset  $main::filesets{$fset}{max} -> $new_limit\n";
 			    close(LOGOUT);
 
+			    printf "$gpfsdev:$fset  $main::filesets{$fset}{max} -> $new_limit\n";
 			    system("/usr/lpp/mmfs/bin/mmchfileset $gpfsdev $fset --inode-limit $new_limit");
 			}
 			else {
