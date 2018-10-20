@@ -269,8 +269,8 @@ sub load_fileset_info($) {
 	my $dev = $mount[0];
 	my $mount_point = $mount[2];
 	my $gpfsdev = '';
-	if( $dev =~ m/^\// ) { $gpfsdev = ( split(/\//, $dev) )[2]; }
-	else                 { $gpfsdev = $dev; }
+	$gpfsdev = $dev; 
+        $gpfsdev =~ s/^\///;
 
 	if( $main::verbose ) { print "Processing: $gpfsdev mounted at $mount_point\n"; }
 
@@ -302,6 +302,9 @@ sub load_fileset_info($) {
 		        if( $main::verbose ) { print "$gpfsdev : $fset is not an independent inode fileset.\n"; }
 		    }
 		    elsif( $fset ne 'root' && $main::filesets{$fset}{inode_space} eq '0' ) {
+		        if( $main::verbose ) { print "$gpfsdev : $fset is not an independent inode fileset.\n"; }
+		    }
+		    elsif( $fset ne 'root' && $main::filesets{$fset}{alloc} eq '0' ) {
 		        if( $main::verbose ) { print "$gpfsdev : $fset is not an independent inode fileset.\n"; }
 		    }
 		    else {
