@@ -270,7 +270,7 @@ sub load_fileset_info($) {
 	my $mount_point = $mount[2];
 	my $gpfsdev = '';
 	$gpfsdev = $dev; 
-        $gpfsdev =~ s/^\///;
+        $gpfsdev =~ s/^\/.*\///;
 
 	if( $main::verbose ) { print "Processing: $gpfsdev mounted at $mount_point\n"; }
 
