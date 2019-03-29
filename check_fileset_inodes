@@ -74,7 +74,8 @@ sub check_lock() {
     my $rc = flock $lock_file, LOCK_EX|LOCK_NB;
     if( $rc == 0 ) {
 	if( $main::verbose ) {
-	    print chomp($0) . " is already running.\n";
+            chomp($0);
+	    print $0 . " is already running.\n";
 	}
 	exit 2;
     }
@@ -250,6 +251,7 @@ sub load_fileset_info($) {
         close(INCFG);
 
         $main::influx{influx_url}  = $main::influx{curl_path} . ' -XPOST ';
+        if ( $main::influx{http_proxy} ) { $main::influx{influx_url} .= '-x ' . $main::influx{http_proxy} . ' '; }
         $main::influx{influx_url} .= '-u ' . $main::influx{influx_user} . ':' . $main::influx{influx_pass} . ' ';
         $main::influx{influx_url} .= $main::influx{influx_service} . '/write?db=' . $main::influx{influx_db} . ' ';
         $main::influx{influx_url} .= '-d "' . $main::influx{influx_metric} . ',cluster=' . $main::influx{gpfs_cluster};

@@ -1,5 +1,6 @@
 gpfs_cluster = mycluster
 curl_path = /usr/bin/curl
+http_proxy = http://my_http_proxy:my_http_proxy_port
 influx_user = my_db_user
 influx_pass = my_db_password
 influx_db = my_db_name
