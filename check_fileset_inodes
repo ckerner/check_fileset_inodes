@@ -273,6 +273,10 @@ sub load_fileset_info($) {
     $main::header = 0;
     open( MNTFIL, "mount -t gpfs |") || die("Unable to execute: mount -t gpfs: $!\n");
     NXTMNT: while( <MNTFIL> ) {
+
+        # Skip GPFS bind mounts in the NFSv4 tree
+        next NXTMNT if m/on \/export/;
+
         my @mount = split( /\s+/, $_, 6 );
 	my $dev = $mount[0];
 	my $mount_point = $mount[2];
