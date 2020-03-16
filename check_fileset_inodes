@@ -41,7 +41,7 @@ $main::default_fileset = 'root';
 $main::default_threshhold = 150000;
 $main::default_increment = 250000;
 $main::influx_config = '/etc/cfi/cfi.cfg';
-
+@main::ignore_devices = qw( );
 
 
 #----------------------------------------------------------------------------------------#
@@ -98,11 +98,15 @@ sub create_config_file($) {
 #----------------------------------------------------------------------------------------#
 sub check_options() {
     my $result = GetOptions ( 'v'   => \$main::verbose,
+                              "i=s" => \@main::ignore_devices, 
                               'f'   => \$main::force_run, 
                               'd'   => \$main::debug, 
                               's'   => \$main::no_influx, 
 			      'h'   => sub { print_help_screen(); },
 			    );
+    
+    # Handle multiple devices and multiple occurrences of -i.
+    @main::ignore_devices = split( /,/, join( ',', @main::ignore_devices ) );
 
 }
 
@@ -117,15 +121,17 @@ sub print_help_screen() {
 
     Usage: $basename [-v] [-f] [-h]
 
-    -v                 Execute in verbose mode. The default is to be very quiet.
+    -i     Ignore specified devices.
 
-    -d                 Execute in debug mode. This produces a log of output!   
+    -v     Execute in verbose mode. The default is to be very quiet.
 
-    -f                 Force a run even if the node is not the cluster manager node.
+    -d     Execute in debug mode. This produces a log of output!   
 
-    -s                 Do not write out the influx dataase file.                       
+    -f     Force a run even if the node is not the cluster manager node.
 
-    -h                 This help screen.
+    -s     Do not write out the influx dataase file.                       
+
+    -h     This help screen.
 
 EOHELP
 
@@ -273,6 +279,13 @@ sub load_fileset_info($) {
 	my $gpfsdev = '';
 	$gpfsdev = $dev; 
         $gpfsdev =~ s/^\/.*\///;
+
+	foreach( @main::ignore_devices ) {
+	   if( $gpfsdev =~ m/$_/ ) {
+	       if( $main::verbose ) { print "Skipping: $gpfsdev due to ignore request.\n"; }
+	       next NXTMNT;
+	   }
+	}
 
 	if( $main::verbose ) { print "Processing: $gpfsdev mounted at $mount_point\n"; }
 
