@@ -215,6 +215,7 @@ sub load_fileset_info($) {
 
 	# Skip the command output headers
 	next FREC if m/HEADER/;
+	next FREC if m/Deleted/;
 
 	my @ara = split( /:/, $_ );
 	my $fset = $ara[7];
@@ -354,10 +355,10 @@ sub load_fileset_info($) {
                             $dbout .= $main::influx{influx_url} . ',';
                             $dbout .= 'gpfsdev=' . $main::quota{$fset}{parent} . ',';
                             $dbout .= 'fileset=' . $fset . ' ';
-                            $dbout .= 'blocks=' . ( int($main::quota{$fset}{blocks}) + int($main::quota{$fset}{in_doubtb}) ) . ',';
+                            $dbout .= 'blocks=' . ( int( $main::quota{$fset}{blocks} ) + int( $main::quota{$fset}{in_doubtb} ) ) . ',';
                             $dbout .= 'squotab=' .  $main::quota{$fset}{squotab} . ',';
                             $dbout .= 'hquotab=' .  $main::quota{$fset}{hquotab} . ',';
-                            $dbout .= 'files=' . ( int($main::quota{$fset}{files}) + int($main::quota{$fset}{in_doubt}) ) . ',';
+                            $dbout .= 'files=' . ( int( $main::quota{$fset}{files} ) + int( $main::quota{$fset}{in_doubt} ) ) . ',';
                             $dbout .= 'squotaf=' .  $main::quota{$fset}{squotaf} . ',';
                             $dbout .= 'hquotaf=' .  $main::quota{$fset}{hquotaf} . ' ';
                             $dbout .= int(time() * 1e9) . '"';
